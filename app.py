@@ -5,7 +5,7 @@ import re
 import requests
 import yt_dlp
 
-# Page configuration
+# Page setup
 st.set_page_config(
     page_title="Batch Link Downloader",
     page_icon="☁️",
@@ -23,7 +23,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# URL Classifier
+# URL Classification Helper
 def classify_url(url: str) -> str:
     u = url.lower()
     if "instagram.com" in u:
@@ -37,11 +37,18 @@ def classify_url(url: str) -> str:
     else:
         return "Generic Web Video"
 
-# Unrestricted Downloader Engine with Cookie Spoofing & Header Bypass
-def download_unrestricted(url: str, output_dir="downloads", progress_callback=None):
+# Proxy-Bypass Extraction Engine
+def download_via_proxy_failsafe(url: str, output_dir="downloads", progress_callback=None):
     os.makedirs(output_dir, exist_ok=True)
     downloaded_files = []
 
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cookie': 'age_verified=1; platform=pc; bs=1',
+    }
+
+    # Pipeline Step 1: Attempt direct yt-dlp download
     def progress_hook(d):
         if d['status'] == 'downloading':
             total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
@@ -52,7 +59,6 @@ def download_unrestricted(url: str, output_dir="downloads", progress_callback=No
             if progress_callback:
                 progress_callback(percent, speed_mb)
 
-    # Base options with injected age-verification and cloud bypass cookies
     ydl_opts = {
         'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
         'format': 'best',
@@ -61,56 +67,50 @@ def download_unrestricted(url: str, output_dir="downloads", progress_callback=No
         'no_warnings': True,
         'nocheckcertificate': True,
         'ignoreerrors': True,
-        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-        'referer': 'https://www.google.com/',
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Cookie': 'age_verified=1; platform=pc; bs=1',
-        }
+        'user_agent': headers['User-Agent'],
+        'http_headers': headers
     }
 
-    # Attempt Primary Extraction with yt-dlp
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if info:
-                if 'requested_downloads' in info:
-                    for req in info['requested_downloads']:
-                        if os.path.exists(req.get('filepath', '')):
-                            downloaded_files.append(req['filepath'])
-                else:
-                    filepath = ydl.prepare_filename(info)
-                    if os.path.exists(filepath):
-                        downloaded_files.append(filepath)
+                filepath = ydl.prepare_filename(info)
+                if os.path.exists(filepath):
+                    downloaded_files.append(filepath)
     except Exception:
         pass
 
-    # Secondary Fallback: Direct MP4 Stream Scraping
+    # Pipeline Step 2: Proxy Tunnel Harvesting (Bypasses Datacenter IP Blocks)
     if not downloaded_files:
-        try:
-            req_headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                'Cookie': 'age_verified=1; platform=pc;'
-            }
-            res = requests.get(url, headers=req_headers, timeout=10)
-            if res.status_code == 200:
-                mp4_urls = re.findall(r'https?://[^\s\'"]+\.mp4[^\s\'"]*', res.text)
-                if mp4_urls:
-                    target_mp4 = mp4_urls[0].replace('\\/', '/')
-                    out_path = os.path.join(output_dir, f"media_{abs(hash(url)) % 100000}.mp4")
-                    with requests.get(target_mp4, headers=req_headers, stream=True, timeout=20) as r:
-                        r.raise_for_status()
-                        with open(out_path, 'wb') as f:
-                            for chunk in r.iter_content(chunk_size=16384):
-                                f.write(chunk)
-                    if os.path.exists(out_path) and os.path.getsize(out_path) > 1024:
-                        downloaded_files.append(out_path)
-        except Exception:
-            pass
+        proxy_gateways = [
+            f"https://corsproxy.io/?{url}",
+            f"https://api.allorigins.win/raw?url={url}"
+        ]
+        
+        for gateway in proxy_gateways:
+            try:
+                res = requests.get(gateway, headers=headers, timeout=12)
+                if res.status_code == 200:
+                    # Search for raw media stream links
+                    mp4_links = re.findall(r'https?://[^\s\'"]+\.mp4[^\s\'"]*', res.text)
+                    if mp4_links:
+                        clean_link = mp4_links[0].replace('\\/', '/')
+                        out_path = os.path.join(output_dir, f"video_stream_{abs(hash(url)) % 1000000}.mp4")
+                        
+                        # Download media stream through proxy gateway
+                        stream_res = requests.get(f"https://corsproxy.io/?{clean_link}", headers=headers, stream=True, timeout=20)
+                        if stream_res.status_code == 200:
+                            with open(out_path, 'wb') as f:
+                                for chunk in stream_res.iter_content(chunk_size=32768):
+                                    f.write(chunk)
+                            if os.path.exists(out_path) and os.path.getsize(out_path) > 1024:
+                                downloaded_files.append(out_path)
+                                break
+            except Exception:
+                continue
 
-    # Final Directory Scan Fallback
+    # Pipeline Step 3: Scan Output Directory for Newly Saved Files
     if not downloaded_files:
         all_files = glob.glob(os.path.join(output_dir, "*.*"))
         downloaded_files = [f for f in all_files if os.path.exists(f) and os.path.getsize(f) > 1024]
@@ -177,7 +177,7 @@ with tab1:
     if st.session_state.queue:
         if st.button("🚀 Start Batch Download Process"):
             for idx, item in enumerate(st.session_state.queue):
-                item['status'] = "Bypassing Protection Blocks..."
+                item['status'] = "Bypassing Datacenter IP Block..."
                 status_box = st.empty()
                 progress_bar = st.progress(0)
                 
@@ -187,7 +187,7 @@ with tab1:
                     status_box.markdown(f"**Item #{idx+1}:** Downloading `{item['url']}` | ⚡ Speed: **{item['speed']}**")
                     progress_bar.progress(int(percent))
 
-                files = download_unrestricted(item['url'], progress_callback=update_progress)
+                files = download_via_proxy_failsafe(item['url'], progress_callback=update_progress)
                 if files:
                     item['status'] = "Ready for Save ✅"
                     item['file_paths'] = files
@@ -195,7 +195,7 @@ with tab1:
                     item['speed'] = "0.0 MB/s"
                     status_box.success(f"Item #{idx+1} successfully processed!")
                 else:
-                    item['status'] = "Hard Datacenter Block ❌ (Use CLI Tab)"
+                    item['status'] = "Cloud IP Blocked ❌ (Use CLI Tab for Local Download)"
                     item['progress'] = 0
             
             st.rerun()
@@ -237,7 +237,7 @@ with tab2:
 # --- TAB 3: CLI SCRIPT GENERATOR ---
 with tab3:
     st.subheader("⚙️ Zero-Prompt Python CLI Script")
-    st.caption("Copy this code into Python / Termux on mobile or PC to run directly on your local network (bypasses all cloud IP blocks).")
+    st.caption("Running this script directly on your iPhone (via a Python app like Pyto/aShell) or PC bypasses all cloud IP blocks because it uses your home cellular/Wi-Fi connection.")
     st.code("""import yt_dlp
 
 def download_batch(urls):
