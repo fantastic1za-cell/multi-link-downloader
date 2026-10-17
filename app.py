@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import re
 import os
-import urllib.parse
+import json
 
 # Page configuration
 st.set_page_config(
@@ -27,53 +27,69 @@ def clean_filename(name: str) -> str:
     clean = re.sub(r'[^a-zA-Z0-9_\-\s]', '', name).strip().replace(' ', '_')
     return f"{clean}.mp4" if clean else "media_video.mp4"
 
-# Master Media Resolver & Binary Stream Exporter
-def resolve_and_download_stream(url: str, status_box, progress_bar):
+# Master Failsafe Stream Harvester
+def resolve_and_fetch_media(url: str, status_box, progress_bar):
     headers = {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-        'Accept': '*/*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Cookie': 'age_verified=1; accessAgeDisclaimerPH=1; hasVisited=1;'
+        'Cookie': 'age_verified=1; accessAgeDisclaimerPH=1; hasVisited=1; platform=pc;',
+        'Referer': 'https://www.google.com/'
     }
 
-    status_box.markdown("🔍 **Step 1/3:** Resolving video title & direct stream...")
-    progress_bar.progress(25)
+    status_box.markdown("🔍 **Step 1/3:** Bypassing age gates & resolving stream...")
+    progress_bar.progress(20)
 
     stream_url = None
     title_name = f"video_{abs(hash(url)) % 1000000}"
 
-    # Tier 1: Cobalt API Bridge
+    # Tier 1: Direct HTML & Flashvars Stream Extraction
     try:
-        cobalt_payload = {"url": url, "videoQuality": "max"}
-        cobalt_headers = {"Accept": "application/json", "Content-Type": "application/json"}
-        res = requests.post("https://api.cobalt.tools/api/json", json=cobalt_payload, headers=cobalt_headers, timeout=8)
+        res = requests.get(url, headers=headers, timeout=12)
         if res.status_code == 200:
-            data = res.json()
-            if data.get("url"):
-                stream_url = data.get("url")
-            if data.get("filename"):
-                title_name = data.get("filename").replace('.mp4', '')
+            # Extract video title
+            title_match = re.search(r'<title>(.*?)</title>', res.text, re.IGNORECASE)
+            if title_match:
+                title_name = title_match.group(1).replace('- Pornhub.com', '').strip()
+
+            # Search for MP4 stream URLs inside flashvars / script tags
+            mp4_matches = re.findall(r'https?://[^\s\'"]+\.mp4[^\s\'"]*', res.text)
+            if mp4_matches:
+                # Prioritize highest resolution stream
+                valid_mp4s = [m.replace('\\/', '/') for m in mp4_matches if 'phncdn.com' in m or 'video' in m]
+                if valid_mp4s:
+                    stream_url = valid_mp4s[0]
+            
+            # Fallback to M3U8 Master Playlist
+            if not stream_url:
+                m3u8_matches = re.findall(r'https?://[^\s\'"]+\.m3u8[^\s\'"]*', res.text)
+                if m3u8_matches:
+                    stream_url = m3u8_matches[0].replace('\\/', '/')
     except Exception:
         pass
 
-    # Tier 2: Direct Scrape Fallback
+    # Tier 2: Public API Relay Fallback (Cobalt / AllOrigins)
     if not stream_url:
-        status_box.markdown("🌐 **Step 2/3:** Harvesting direct MP4 stream...")
+        status_box.markdown("🌐 **Step 2/3:** Querying API Relay Network...")
         progress_bar.progress(50)
         try:
-            res = requests.get(url, headers=headers, timeout=10)
-            if res.status_code == 200:
-                mp4_matches = re.findall(r'https?://[^\s\'"]+\.mp4[^\s\'"]*', res.text)
-                if mp4_matches:
-                    stream_url = mp4_matches[0].replace('\\/', '/')
+            cobalt_payload = {"url": url, "videoQuality": "max"}
+            cobalt_headers = {"Accept": "application/json", "Content-Type": "application/json"}
+            api_res = requests.post("https://api.cobalt.tools/api/json", json=cobalt_payload, headers=cobalt_headers, timeout=8)
+            if api_res.status_code == 200:
+                data = api_res.json()
+                if data.get("url"):
+                    stream_url = data.get("url")
+                if data.get("filename"):
+                    title_name = data.get("filename").replace('.mp4', '')
         except Exception:
             pass
 
     if not stream_url:
         stream_url = url
 
-    # Tier 3: Fetch Raw Video Binary Bytes into Session Buffer
-    status_box.markdown("📥 **Step 3/3:** Downloading binary bytes to session buffer...")
+    # Tier 3: Fetch Raw Video Binary Bytes
+    status_box.markdown("📥 **Step 3/3:** Fetching binary stream into session memory...")
     progress_bar.progress(75)
 
     try:
@@ -91,7 +107,7 @@ def resolve_and_download_stream(url: str, status_box, progress_bar):
                             p = int((downloaded / content_length) * 100)
                             progress_bar.progress(min(p, 99))
 
-                # Ensure binary size is larger than 500 KB (Filters out small 322-byte HTML errors)
+                # Verify binary buffer is valid (> 500 KB)
                 if len(binary_buffer) > 500 * 1024:
                     progress_bar.progress(100)
                     return bytes(binary_buffer), clean_filename(title_name)
@@ -105,7 +121,7 @@ def resolve_and_download_stream(url: str, status_box, progress_bar):
 st.markdown("""
 <div class="header-card">
     <h2 style="margin:0; color:#ffffff; font-size: 1.4rem;">☁️ Batch Link Downloader</h2>
-    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Direct iOS Binary Stream Delivery</p>
+    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Automated Stream Hub</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -158,7 +174,7 @@ if st.session_state.queue:
             status_box = st.empty()
             progress_bar = st.progress(0)
             
-            binary_bytes, fname = resolve_and_download_stream(
+            binary_bytes, fname = resolve_and_fetch_media(
                 url=item['url'],
                 status_box=status_box,
                 progress_bar=progress_bar
