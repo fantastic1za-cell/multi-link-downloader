@@ -1,7 +1,7 @@
 import streamlit as st
 import time
-import re
 import os
+from batch_downloader import BatchDownloader
 
 # Page configuration
 st.set_page_config(
@@ -11,24 +11,21 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom Styling to match dark glassmorphism layout
+# Custom Styling matching dark glassmorphism layout
 st.markdown("""
 <style>
     .stApp { background-color: #0b1120; color: #f8fafc; }
     .header-card { background: rgba(30, 41, 59, 0.7); padding: 18px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 20px; }
-    .status-badge { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 12px; }
     .stButton>button { background-color: #0284c7; color: white; border-radius: 12px; border: none; font-weight: 600; padding: 10px 20px; width: 100%; }
     .stButton>button:hover { background-color: #0369a1; }
 </style>
 """, unsafe_allow_html=True)
 
-# Header Section
+# Header
 st.markdown("""
-<div class="header-card flex justify-between items-center">
-    <div>
-        <h2 style="margin:0; color:#ffffff; font-size: 1.4rem;">☁️ Batch Link Downloader</h2>
-        <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Automated Media Hub</p>
-    </div>
+<div class="header-card">
+    <h2 style="margin:0; color:#ffffff; font-size: 1.4rem;">☁️ Batch Link Downloader</h2>
+    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Automated Media Hub</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -41,6 +38,8 @@ if 'queue' not in st.session_state:
 if 'destination' not in st.session_state:
     st.session_state.destination = "On My iPhone / Downloads"
 
+downloader = BatchDownloader()
+
 # --- TAB 1: MEDIA DASHBOARD ---
 with tab1:
     st.subheader("📁 Batch Link Input")
@@ -48,7 +47,7 @@ with tab1:
     
     urls_input = st.text_area(
         "Paste links (one per line):",
-        placeholder="https://www.instagram.com/tech_creator/\nhttps://www.instagram.com/reel/C3x9L0xO8P/",
+        placeholder="https://www.instagram.com/reel/C3x9L0xO8P/\nhttps://www.youtube.com/watch?v=xxxxxx",
         height=140
     )
     
@@ -61,17 +60,14 @@ with tab1:
                 lines = [line.strip() for line in urls_input.split('\n') if line.strip()]
                 st.session_state.queue = []
                 for url in lines:
-                    if "instagram.com" in url:
-                        media_type = "Instagram Profile" if "/reel/" not in url and "/p/" not in url else "Instagram Reel"
-                    else:
-                        media_type = "Generic Video Stream"
-                    
+                    media_type = "Instagram Reel/Post" if "instagram.com" in url else "Generic Video Stream"
                     st.session_state.queue.append({
                         "url": url,
                         "type": media_type,
                         "status": "Pending",
                         "progress": 0,
-                        "speed": "0.0 MB/s"
+                        "speed": "0.0 MB/s",
+                        "file_path": None
                     })
                 st.success(f"Added {len(lines)} item(s) to queue!")
     
@@ -88,33 +84,52 @@ with tab1:
     
     if st.session_state.queue:
         if st.button("🚀 Start Batch Download Process"):
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            total_items = len(st.session_state.queue)
-            for index, item in enumerate(st.session_state.queue):
+            for idx, item in enumerate(st.session_state.queue):
                 item['status'] = "Downloading..."
                 
-                # Download Speed and Progress simulation/execution
-                for p in range(1, 101, 20):
-                    time.sleep(0.15)
-                    item['progress'] = p
-                    simulated_speed = round(12.4 + (p % 3) * 1.5, 1)
-                    item['speed'] = f"{simulated_speed} MB/s"
-                    
-                    status_text.markdown(f"**Downloading:** `{item['url']}` | ⚡ Speed: **{item['speed']}** | Progress: **{p}%**")
-                    progress_bar.progress((index * 100 + p) // (total_items * 100))
+                status_box = st.empty()
+                progress_bar = st.progress(0)
                 
-                item['status'] = "Completed ✅"
-                item['speed'] = "0.0 MB/s"
+                def update_progress(percent, speed_mb):
+                    item['progress'] = int(percent)
+                    item['speed'] = f"{speed_mb:.1f} MB/s"
+                    status_box.markdown(f"**Item #{idx+1}:** Downloading `{item['url']}` | ⚡ Speed: **{item['speed']}**")
+                    progress_bar.progress(int(percent))
+
+                try:
+                    filepath = downloader.download_url(item['url'], progress_callback=update_progress)
+                    if filepath and os.path.exists(filepath):
+                        item['status'] = "Completed ✅"
+                        item['file_path'] = filepath
+                        item['progress'] = 100
+                        item['speed'] = "0.0 MB/s"
+                        status_box.success(f"Item #{idx+1} Downloaded successfully!")
+                    else:
+                        item['status'] = "Error / Restricted ❌"
+                except Exception as e:
+                    item['status'] = f"Failed: {str(e)}"
+                    status_box.error(f"Error downloading item #{idx+1}: {e}")
             
-            status_text.success("🎉 All batch downloads completed successfully!")
-            
+            st.success("🎉 Batch processing complete!")
+            st.rerun()
+
+        # Display Queue items and File Download buttons
         for idx, q_item in enumerate(st.session_state.queue):
             with st.container():
                 st.markdown(f"**Item #{idx+1}:** `{q_item['url']}`")
                 st.caption(f"Type: {q_item['type']} | Status: {q_item['status']} | ⚡ Speed: {q_item['speed']}")
                 st.progress(q_item['progress'])
+                
+                # Show Save to iPhone Button when File Path exists
+                if q_item['file_path'] and os.path.exists(q_item['file_path']):
+                    with open(q_item['file_path'], "rb") as file_bytes:
+                        st.download_button(
+                            label=f"📥 Save File #{idx+1} to iPhone",
+                            data=file_bytes,
+                            file_name=os.path.basename(q_item['file_path']),
+                            mime="video/mp4",
+                            key=f"dl_btn_{idx}"
+                        )
 
 # --- TAB 2: DESTINATION & QUALITY ---
 with tab2:
@@ -136,52 +151,15 @@ with tab3:
     st.caption("Generates `batch_downloader.py` for direct command line batch execution on iOS or PC.")
     
     cli_code = """import os
-import re
 import yt_dlp
-import instaloader
 
-class BatchDownloader:
-    def __init__(self, output_dir="downloads"):
-        self.output_dir = os.path.abspath(output_dir)
-        os.makedirs(self.output_dir, exist_ok=True)
-        
-        self.insta = instaloader.Instaloader(
-            dirname_pattern=os.path.join(self.output_dir, "Instagram", "{target}"),
-            download_videos=True,
-            download_video_thumbnails=False,
-            download_geotags=False,
-            download_comments=False,
-            save_metadata=False,
-            compress_json=False
-        )
-
-    def is_instagram_profile(self, url: str) -> bool:
-        pattern = r'https?://(?:www\.)?instagram\.com/([a-zA-Z0-0_\.]+)/?'
-        match = re.match(pattern, url)
-        if match:
-            username = match.group(1)
-            return username not in ['reel', 'p', 'stories', 'explore']
-        return False
-
-    def process_batch(self, url_list):
-        for url in url_list:
-            print(f"[+] Processing: {url}")
-            if self.is_instagram_profile(url):
-                username = re.match(r'https?://(?:www\.)?instagram\.com/([a-zA-Z0-0_\.]+)/?', url).group(1)
-                self.insta.download_profile(username, profile_pic_only=False)
-            else:
-                ydl_opts = {
-                    'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
-                    'format': 'bestvideo+bestaudio/best',
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
+def download_batch(url_list):
+    ydl_opts = {'outtmpl': 'downloads/%(title)s.%(ext)s'}
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download(url_list)
 
 if __name__ == "__main__":
-    urls = [
-        "https://www.instagram.com/reel/C3x9L0xO8P/",
-    ]
-    downloader = BatchDownloader()
-    downloader.process_batch(urls)
+    urls = ["https://www.instagram.com/reel/C3x9L0xO8P/"]
+    download_batch(urls)
 """
     st.code(cli_code, language="python")
