@@ -1,9 +1,12 @@
 import streamlit as st
 import os
 import glob
+import re
+import requests
+from bs4 import BeautifulSoup
 import yt_dlp
 
-# Page setup
+# Page configuration
 st.set_page_config(
     page_title="Batch Link Downloader",
     page_icon="☁️",
@@ -21,7 +24,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# URL Classification Helper
+# Helper: URL Classifier
 def classify_url(url: str) -> str:
     u = url.lower()
     if "instagram.com" in u:
@@ -30,11 +33,42 @@ def classify_url(url: str) -> str:
         return "Twitter / X Video"
     elif "youtube.com" in u or "youtu.be" in u:
         return "YouTube Video"
+    elif "pornhub.com" in u:
+        return "Adult Media Stream"
     else:
         return "Generic Web Video"
 
-# Robust Download Engine
-def download_url(url: str, output_dir="downloads", progress_callback=None):
+# Tier 2 Extraction: Direct HTML Media Harvesting
+def direct_harvest_stream(url: str, output_dir="downloads") -> str:
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        'Accept-Language': 'en-US,en;q=0.9',
+    }
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Search for og:video, video tags, or script embedded mp4 streams
+            mp4_matches = re.findall(r'https?://[^\s\'"]+\.mp4[^\s\'"]*', response.text)
+            if mp4_matches:
+                target_url = mp4_matches[0].replace('\\/', '/')
+                file_name = f"video_stream_{abs(hash(url)) % 1000000}.mp4"
+                file_path = os.path.join(output_dir, file_name)
+                
+                with requests.get(target_url, headers=headers, stream=True, timeout=15) as r:
+                    r.raise_for_status()
+                    with open(file_path, 'wb') as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:
+                    return file_path
+    except Exception:
+        pass
+    return None
+
+# Tier 1 Extraction: yt-dlp with Headers & Failsafes
+def download_url_failsafe(url: str, output_dir="downloads", progress_callback=None):
     os.makedirs(output_dir, exist_ok=True)
     
     def progress_hook(d):
@@ -47,30 +81,53 @@ def download_url(url: str, output_dir="downloads", progress_callback=None):
             if progress_callback:
                 progress_callback(percent, speed_mb)
 
-    # Use single container format to avoid merge failures on cloud runners
     ydl_opts = {
         'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
-        'format': 'best[ext=mp4]/best',
+        'format': 'best',
         'progress_hooks': [progress_hook],
         'quiet': True,
         'no_warnings': True,
+        'nocheckcertificate': True,
+        'ignoreerrors': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'referer': 'https://www.google.com/',
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        }
     }
 
-    downloaded_path = None
+    downloaded_files = []
+    
+    # Try Tier 1: Engine Extraction
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            downloaded_path = ydl.prepare_filename(info)
-    except Exception as e:
-        st.error(f"Download Error: {e}")
+            if info:
+                if 'requested_downloads' in info:
+                    for req in info['requested_downloads']:
+                        if os.path.exists(req.get('filepath', '')):
+                            downloaded_files.append(req['filepath'])
+                else:
+                    filepath = ydl.prepare_filename(info)
+                    if os.path.exists(filepath):
+                        downloaded_files.append(filepath)
+    except Exception:
+        pass
 
-    # Fallback to search output directory if path check differs
-    if downloaded_path and os.path.exists(downloaded_path):
-        return [downloaded_path]
-    
-    # Check directory for any newly written files
-    files = glob.glob(os.path.join(output_dir, "*.*"))
-    return [f for f in files if os.path.exists(f)]
+    # Try Tier 2: Direct HTML Harvester if Tier 1 returned no files
+    if not downloaded_files:
+        harvested_file = direct_harvest_stream(url, output_dir)
+        if harvested_file:
+            downloaded_files.append(harvested_file)
+
+    # Check output directory for any newly generated files
+    if not downloaded_files:
+        all_files = glob.glob(os.path.join(output_dir, "*.*"))
+        downloaded_files = [f for f in all_files if os.path.exists(f) and os.path.getsize(f) > 1024]
+
+    return downloaded_files
 
 # Header
 st.markdown("""
@@ -86,12 +143,12 @@ tab1, tab2, tab3 = st.tabs(["📊 Media Dashboard", "⚙️ Destination & Qualit
 if 'queue' not in st.session_state:
     st.session_state.queue = []
 if 'destination' not in st.session_state:
-    st.session_state.destination = "On My iPhone / Downloads"
+    st.session_state.destination = "Local iOS Files (On My iPhone / Downloads)"
 
 # --- TAB 1: MEDIA DASHBOARD ---
 with tab1:
     st.subheader("📁 Multi-Platform Batch Input")
-    st.caption("Supports YouTube, Twitter/X, Instagram & Generic Web Video Links.")
+    st.caption("Supports YouTube, Twitter/X, Instagram, Adult Media & Generic Web Video Links.")
     
     urls_input = st.text_area(
         "Paste links (one per line):",
@@ -132,7 +189,7 @@ with tab1:
     if st.session_state.queue:
         if st.button("🚀 Start Batch Download Process"):
             for idx, item in enumerate(st.session_state.queue):
-                item['status'] = "Downloading..."
+                item['status'] = "Processing Failsafe Pipeline..."
                 status_box = st.empty()
                 progress_bar = st.progress(0)
                 
@@ -142,15 +199,15 @@ with tab1:
                     status_box.markdown(f"**Item #{idx+1}:** Downloading `{item['url']}` | ⚡ Speed: **{item['speed']}**")
                     progress_bar.progress(int(percent))
 
-                files = download_url(item['url'], progress_callback=update_progress)
+                files = download_url_failsafe(item['url'], progress_callback=update_progress)
                 if files:
                     item['status'] = "Ready for Save ✅"
                     item['file_paths'] = files
                     item['progress'] = 100
                     item['speed'] = "0.0 MB/s"
-                    status_box.success(f"Item #{idx+1} complete! Tap button below to save.")
+                    status_box.success(f"Item #{idx+1} successfully processed!")
                 else:
-                    item['status'] = "Download Failed ❌"
+                    item['status'] = "Access Restricted / Protection Block ❌"
                     item['progress'] = 0
             
             st.rerun()
@@ -162,7 +219,7 @@ with tab1:
                 st.caption(f"Engine Target: {q_item['type']} | Status: {q_item['status']} | ⚡ Speed: {q_item['speed']}")
                 st.progress(q_item['progress'])
                 
-                # Render direct save button whenever file exists
+                # Render direct download button for iPhone
                 if q_item['file_paths']:
                     for f_idx, file_path in enumerate(q_item['file_paths']):
                         if os.path.exists(file_path):
@@ -171,7 +228,7 @@ with tab1:
                             
                             with open(file_path, "rb") as f_bytes:
                                 st.download_button(
-                                    label=f"📥 Save File ({file_name}) to iPhone",
+                                    label=f"📥 Save File #{idx+1} ({file_name}) to iPhone",
                                     data=f_bytes,
                                     file_name=file_name,
                                     mime=mime_type,
@@ -195,7 +252,11 @@ with tab3:
     st.code("""import yt_dlp
 
 def download(urls):
-    with yt_dlp.YoutubeDL({'outtmpl': 'downloads/%(title)s.%(ext)s'}) as ydl:
+    ydl_opts = {
+        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download(urls)
 
 download(["https://x.com/status/123456"])""", language="python")
