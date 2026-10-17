@@ -23,7 +23,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# URL Classification Helper
+# Helper: URL Classifier
 def classify_url(url: str) -> str:
     u = url.lower()
     if "instagram.com" in u:
@@ -39,80 +39,83 @@ def classify_url(url: str) -> str:
     else:
         return "Generic Web Video (SaveTheVideo Engine)"
 
-# SnapTik/Tikwm API Stream Harvester for TikTok
-def fetch_tiktok_snaptik(url: str, output_dir: str) -> str:
+# Relay Extractor A: Cobalt API Bridge (Bypasses Datacenter Blocks)
+def fetch_via_cobalt_api(url: str, output_dir: str) -> str:
     try:
-        api_url = f"https://www.tikwm.com/api/?url={requests.utils.quote(url)}"
-        res = requests.get(api_url, timeout=10).json()
-        if res.get("code") == 0:
-            video_url = res["data"].get("play") or res["data"].get("wmplay")
-            if video_url:
-                out_path = os.path.join(output_dir, f"tiktok_{res['data'].get('id', 'hd')}.mp4")
-                v_res = requests.get(video_url, timeout=20, stream=True)
-                with open(out_path, 'wb') as f:
-                    for chunk in v_res.iter_content(chunk_size=32768):
-                        f.write(chunk)
-                if os.path.exists(out_path) and os.path.getsize(out_path) > 1024 * 1024:
-                    return out_path
+        api_url = "https://api.cobalt.tools/api/json"
+        payload = {"url": url, "videoQuality": "max"}
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        }
+        res = requests.post(api_url, json=payload, headers=headers, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            stream_link = data.get("url")
+            if stream_link:
+                out_path = os.path.join(output_dir, f"media_relayed_{abs(hash(url)) % 100000}.mp4")
+                with requests.get(stream_link, stream=True, timeout=25) as stream_res:
+                    if stream_res.status_code == 200:
+                        with open(out_path, 'wb') as f:
+                            for chunk in stream_res.iter_content(chunk_size=32768):
+                                f.write(chunk)
+                        if os.path.exists(out_path) and os.path.getsize(out_path) > 1024 * 1024:
+                            return out_path
     except Exception:
         pass
     return None
 
-# High-Precision Multi-Engine Video Downloader (Max 4K Quality)
-def download_max_quality(url: str, output_dir="downloads", status_box=None, progress_bar=None):
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 1. TikTok SnapTik Direct API Engine
-    if "tiktok.com" in url.lower():
-        if status_box: status_box.markdown("⚡ Fetching TikTok HD Video via SnapTik Engine...")
-        tt_file = fetch_tiktok_snaptik(url, output_dir)
-        if tt_file:
-            return tt_file
-
-    # 2. Universal 4K Extractor Engine (SaveTheVideo / SSSInstagram equivalent)
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cookie': 'age_verified=1; platform=pc; bs=1',
-    }
-
-    def progress_hook(d):
-        if d['status'] == 'downloading':
-            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
-            downloaded = d.get('downloaded_bytes', 0)
-            speed = d.get('speed', 0)
-            percent = (downloaded / total * 100) if total > 0 else 0
-            speed_mb = (speed / (1024 * 1024)) if speed else 0.0
-            
-            if status_box and progress_bar:
-                status_box.markdown(f"⚡ Downloading Max 4K Stream: **{percent:.1f}%** | Speed: **{speed_mb:.1f} MB/s**")
-                progress_bar.progress(int(percent))
-
-    # Priority to Highest Resolution (Up to 4K / 2160p)
-    ydl_opts = {
-        'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
-        'format': 'bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
-        'progress_hooks': [progress_hook],
-        'quiet': True,
-        'no_warnings': True,
-        'nocheckcertificate': True,
-        'ignoreerrors': True,
-        'user_agent': headers['User-Agent'],
-        'http_headers': headers
-    }
-
+# Relay Extractor B: CORS Proxy Stream Harvester
+def fetch_via_cors_gateway(url: str, output_dir: str) -> str:
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            if info:
-                filepath = ydl.prepare_filename(info)
-                if os.path.exists(filepath) and os.path.getsize(filepath) > 1024 * 1024:
-                    return filepath
+        gateways = [
+            f"https://corsproxy.io/?{requests.utils.quote(url)}",
+            f"https://api.allorigins.win/raw?url={requests.utils.quote(url)}"
+        ]
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Cookie': 'age_verified=1; platform=pc;'
+        }
+        for gw in gateways:
+            res = requests.get(gw, headers=headers, timeout=12)
+            if res.status_code == 200:
+                mp4_matches = re.findall(r'https?://[^\s\'"]+\.mp4[^\s\'"]*', res.text)
+                if mp4_matches:
+                    clean_link = mp4_matches[0].replace('\\/', '/')
+                    out_path = os.path.join(output_dir, f"stream_harvested_{abs(hash(url)) % 100000}.mp4")
+                    
+                    with requests.get(clean_link, headers=headers, stream=True, timeout=25) as s_res:
+                        if s_res.status_code == 200:
+                            with open(out_path, 'wb') as f:
+                                for chunk in s_res.iter_content(chunk_size=32768):
+                                    f.write(chunk)
+                            if os.path.exists(out_path) and os.path.getsize(out_path) > 1024 * 1024:
+                                return out_path
     except Exception:
         pass
+    return None
 
-    # Fallback Directory Scan for valid media files (> 1 MB)
+# Master Failsafe Media Harvester
+def download_media_failsafe(url: str, output_dir="downloads", status_box=None, progress_bar=None):
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 1. Try Cobalt API Relay
+    if status_box: status_box.markdown("⚡ **Phase 1:** Bypassing Cloud Block via API Relay...")
+    if progress_bar: progress_bar.progress(30)
+    file_path = fetch_via_cobalt_api(url, output_dir)
+    if file_path:
+        return file_path
+
+    # 2. Try CORS Proxy Harvester
+    if status_box: status_box.markdown("⚡ **Phase 2:** Harvesting Direct Media Stream...")
+    if progress_bar: progress_bar.progress(60)
+    file_path = fetch_via_cors_gateway(url, output_dir)
+    if file_path:
+        return file_path
+
+    # 3. Fallback to Local Directory File Verification (> 1 MB)
+    if progress_bar: progress_bar.progress(90)
     all_files = glob.glob(os.path.join(output_dir, "*.*"))
     valid_files = [f for f in all_files if os.path.exists(f) and os.path.getsize(f) > 1024 * 1024]
     
@@ -141,7 +144,7 @@ with tab1:
     
     urls_input = st.text_area(
         "Paste links (one per line):",
-        placeholder="https://www.tiktok.com/@username/video/12345678\nhttps://www.instagram.com/reel/Cxxxxxx/\nhttps://www.youtube.com/watch?v=xxxxxx\nhttps://www.pornhub.com/view_video.php?viewkey=69f07e4c68014",
+        placeholder="https://www.pornhub.com/view_video.php?viewkey=69f07e4c68014\nhttps://www.tiktok.com/@username/video/12345678\nhttps://www.instagram.com/reel/Cxxxxxx/\nhttps://www.youtube.com/watch?v=xxxxxx",
         height=140
     )
     
@@ -177,12 +180,12 @@ with tab1:
     if st.session_state.queue:
         if st.button("🚀 Start Batch Download Process"):
             for idx, item in enumerate(st.session_state.queue):
-                item['status'] = "Downloading Highest Quality Stream (Up to 4K)..."
+                item['status'] = "Bypassing Datacenter IP Block..."
                 
                 status_box = st.empty()
                 progress_bar = st.progress(0)
                 
-                file_path = download_max_quality(
+                file_path = download_media_failsafe(
                     url=item['url'],
                     status_box=status_box,
                     progress_bar=progress_bar
@@ -195,9 +198,9 @@ with tab1:
                     item['progress'] = 100
                     status_box.success(f"Item #{idx+1} verified! Size: {file_size_mb:.1f} MB")
                 else:
-                    item['status'] = "Cloud IP Blocked ❌ (Use CLI Script in Tab 3)"
+                    item['status'] = "Use CLI Script in Tab 3 ❌"
                     item['progress'] = 0
-                    status_box.error(f"Item #{idx+1} failed due to cloud IP block.")
+                    status_box.error(f"Item #{idx+1} could not bypass AWS cloud block.")
             
             st.rerun()
 
@@ -219,7 +222,7 @@ with tab1:
                             data=f_bytes,
                             file_name=file_name,
                             mime="video/mp4",
-                            key=f"max_dl_{idx}"
+                            key=f"failsafe_dl_{idx}"
                         )
 
 # --- TAB 2: DESTINATION RULES ---
@@ -234,7 +237,7 @@ with tab2:
 # --- TAB 3: CLI SCRIPT GENERATOR ---
 with tab3:
     st.subheader("⚙️ Zero-Prompt Python CLI Script")
-    st.caption("Running this script directly on your device (via a terminal app or PC) completely bypasses all cloud IP blocks because it uses your local cellular/Wi-Fi connection.")
+    st.caption("Running this script directly on your device (via a terminal app like Pyto/aShell or PC) completely bypasses all cloud IP blocks because it uses your local cellular/Wi-Fi connection.")
     st.code("""import yt_dlp
 
 def download_batch(urls):
@@ -251,7 +254,7 @@ def download_batch(urls):
 
 if __name__ == "__main__":
     download_batch([
+        "https://www.pornhub.com/view_video.php?viewkey=69f07e4c68014",
         "https://www.tiktok.com/@username/video/12345678",
-        "https://www.instagram.com/reel/Cxxxxxx/",
-        "https://www.pornhub.com/view_video.php?viewkey=69f07e4c68014"
+        "https://www.instagram.com/reel/Cxxxxxx/"
     ])""", language="python")
