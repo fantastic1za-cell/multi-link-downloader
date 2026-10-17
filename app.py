@@ -2,9 +2,8 @@ import streamlit as st
 import os
 import glob
 import yt_dlp
-import instaloader
 
-# Page configuration
+# Page setup
 st.set_page_config(
     page_title="Batch Link Downloader",
     page_icon="☁️",
@@ -22,7 +21,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Classification helper
+# URL Classification Helper
 def classify_url(url: str) -> str:
     u = url.lower()
     if "instagram.com" in u:
@@ -34,11 +33,10 @@ def classify_url(url: str) -> str:
     else:
         return "Generic Web Video"
 
-# Unified Downloader function
+# Robust Download Engine
 def download_url(url: str, output_dir="downloads", progress_callback=None):
     os.makedirs(output_dir, exist_ok=True)
-    downloaded_files = []
-
+    
     def progress_hook(d):
         if d['status'] == 'downloading':
             total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
@@ -49,33 +47,36 @@ def download_url(url: str, output_dir="downloads", progress_callback=None):
             if progress_callback:
                 progress_callback(percent, speed_mb)
 
+    # Use single container format to avoid merge failures on cloud runners
     ydl_opts = {
         'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': 'best[ext=mp4]/best',
         'progress_hooks': [progress_hook],
         'quiet': True,
         'no_warnings': True,
     }
 
+    downloaded_path = None
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            if 'requested_downloads' in info:
-                for req in info['requested_downloads']:
-                    downloaded_files.append(req['filepath'])
-            else:
-                filepath = ydl.prepare_filename(info)
-                downloaded_files.append(filepath)
+            downloaded_path = ydl.prepare_filename(info)
     except Exception as e:
-        pass
+        st.error(f"Download Error: {e}")
 
-    return [f for f in downloaded_files if os.path.exists(f)]
+    # Fallback to search output directory if path check differs
+    if downloaded_path and os.path.exists(downloaded_path):
+        return [downloaded_path]
+    
+    # Check directory for any newly written files
+    files = glob.glob(os.path.join(output_dir, "*.*"))
+    return [f for f in files if os.path.exists(f)]
 
 # Header
 st.markdown("""
 <div class="header-card">
     <h2 style="margin:0; color:#ffffff; font-size: 1.4rem;">☁️ Batch Link Downloader</h2>
-    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Automated Media Hub</p>
+    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Multi-Source Media Hub</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -143,25 +144,25 @@ with tab1:
 
                 files = download_url(item['url'], progress_callback=update_progress)
                 if files:
-                    item['status'] = "Completed ✅"
+                    item['status'] = "Ready for Save ✅"
                     item['file_paths'] = files
                     item['progress'] = 100
                     item['speed'] = "0.0 MB/s"
-                    status_box.success(f"Item #{idx+1} Downloaded to server!")
+                    status_box.success(f"Item #{idx+1} complete! Tap button below to save.")
                 else:
-                    item['status'] = "Completed ✅"
-                    item['progress'] = 100
+                    item['status'] = "Download Failed ❌"
+                    item['progress'] = 0
             
-            st.success("🎉 Batch process complete! Click save buttons below to download to iPhone.")
             st.rerun()
 
-        # Render Save Buttons to transfer files to iPhone
+        # Render Queue items and File Save buttons
         for idx, q_item in enumerate(st.session_state.queue):
             with st.container():
                 st.markdown(f"**Item #{idx+1}:** `{q_item['url']}`")
                 st.caption(f"Engine Target: {q_item['type']} | Status: {q_item['status']} | ⚡ Speed: {q_item['speed']}")
                 st.progress(q_item['progress'])
                 
+                # Render direct save button whenever file exists
                 if q_item['file_paths']:
                     for f_idx, file_path in enumerate(q_item['file_paths']):
                         if os.path.exists(file_path):
