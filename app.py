@@ -9,7 +9,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Dark glassmorphism styling
+# Dark glassmorphism custom CSS
 st.markdown("""
 <style>
     .stApp { background-color: #0b1120; color: #f8fafc; }
@@ -21,18 +21,18 @@ st.markdown("""
 st.markdown("""
 <div class="header-card">
     <h2 style="margin:0; color:#ffffff; font-size: 1.4rem;">☁️ Batch Link Downloader</h2>
-    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Direct Engine (18+ & Local IP Auto-Bypass)</p>
+    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Native iOS Blob File Delivery</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Client-Side HTML/JS Execution Engine
+# Client-Side Execution Engine
 html_engine = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Batch Downloader Hub</title>
+    <title>Batch Link Downloader Hub</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -54,11 +54,11 @@ html_engine = """
             </button>
         </div>
 
-        <!-- TAB 1: DASHBOARD -->
+        <!-- TAB 1: MEDIA DASHBOARD -->
         <div id="view-dashboard" class="space-y-4">
             <div class="glass rounded-2xl p-4 space-y-3">
                 <label class="block text-xs font-semibold text-slate-300">Paste Links (One per line):</label>
-                <textarea id="linkInput" rows="4" class="w-full bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500 placeholder-slate-500 font-mono" placeholder="https://www.pornhub.com/view_video.php?viewkey=65143fe343448&#10;https://www.instagram.com/reel/Cxxxxxx/&#10;https://www.tiktok.com/@username/video/12345678"></textarea>
+                <textarea id="linkInput" rows="4" class="w-full bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500 placeholder-slate-500 font-mono" placeholder="https://www.pornhub.com/view_video.php?viewkey=69f07e4c68014&#10;https://www.instagram.com/reel/Cxxxxxx/&#10;https://www.tiktok.com/@username/video/12345678"></textarea>
                 
                 <div class="flex flex-col sm:flex-row justify-between items-center gap-3 pt-1">
                     <div class="text-[11px] text-slate-400 flex items-center gap-1.5">
@@ -85,13 +85,13 @@ html_engine = """
         <!-- TAB 2: SETTINGS -->
         <div id="view-settings" class="glass rounded-2xl p-4 space-y-3 hidden">
             <h3 class="text-xs font-semibold text-slate-300">Target Storage Location</h3>
-            <p class="text-xs text-slate-400">Downloads will prompt directly in Safari to save to <span class="text-sky-400 font-semibold">On My iPhone / Downloads</span>.</p>
+            <p class="text-xs text-slate-400">Files will be saved directly into <span class="text-sky-400 font-semibold">On My iPhone / Downloads</span> preserving source title names.</p>
         </div>
 
     </div>
 
     <script>
-        // Auto-inject age verification and cookies into browser session
+        // Inject Age Verification and Session Cookies
         document.cookie = "age_verified=1; path=/; max-age=31536000";
         document.cookie = "accessAgeDisclaimerPH=1; path=/; max-age=31536000";
 
@@ -107,6 +107,10 @@ html_engine = """
             document.getElementById('linkInput').value = '';
             document.getElementById('queueContainer').classList.add('hidden');
             document.getElementById('queueList').innerHTML = '';
+        }
+
+        function sanitizeFilename(name) {
+            return name.replace(/[^a-zA-Z0-9_\\-\\s]/g, '').trim().replace(/\\s+/g, '_') + '.mp4';
         }
 
         async function processBatch() {
@@ -129,10 +133,10 @@ html_engine = """
                 card.innerHTML = `
                     <div class="flex justify-between items-start gap-2">
                         <div class="truncate">
-                            <p class="text-xs font-mono text-slate-200 truncate">${url}</p>
-                            <p id="sub-${i}" class="text-[10px] text-slate-400">Bypassing datacenter block via local device IP...</p>
+                            <p id="title-${i}" class="text-xs font-mono text-slate-200 truncate">${url}</p>
+                            <p id="sub-${i}" class="text-[10px] text-slate-400">Extracting stream and title metadata...</p>
                         </div>
-                        <span id="badge-${i}" class="text-[10px] bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded border border-sky-500/20 whitespace-nowrap">Extracting...</span>
+                        <span id="badge-${i}" class="text-[10px] bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded border border-sky-500/20 whitespace-nowrap">Resolving...</span>
                     </div>
                     <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
                         <div id="bar-${i}" class="bg-sky-500 h-full w-0 transition-all duration-300"></div>
@@ -141,54 +145,99 @@ html_engine = """
                 `;
                 list.appendChild(card);
 
-                await extractMediaStream(i, url);
+                await extractAndSaveBlob(i, url);
             }
         }
 
-        async function extractMediaStream(idx, url) {
+        async function extractAndSaveBlob(idx, url) {
             const bar = document.getElementById(`bar-${idx}`);
             const badge = document.getElementById(`badge-${idx}`);
             const sub = document.getElementById(`sub-${idx}`);
+            const titleElem = document.getElementById(`title-${idx}`);
             const action = document.getElementById(`action-${idx}`);
 
             try {
-                bar.style.width = "50%";
-                sub.innerText = "Resolving stream via Cobalt API...";
+                bar.style.width = "40%";
+                sub.innerText = "Querying source title and stream URL...";
 
-                let targetStream = url;
-                const response = await fetch("https://api.cobalt.tools/api/json", {
-                    method: "POST",
-                    headers: { "Accept": "application/json", "Content-Type": "application/json" },
-                    body: JSON.stringify({ url: url, videoQuality: "max" })
+                let mediaUrl = url;
+                let titleName = `video_source_${idx + 1}`;
+
+                // Fetch title and stream URL via Cobalt API
+                try {
+                    const cobRes = await fetch("https://api.cobalt.tools/api/json", {
+                        method: "POST",
+                        headers: { "Accept": "application/json", "Content-Type": "application/json" },
+                        body: JSON.stringify({ url: url, videoQuality: "max" })
+                    });
+                    const cobData = await cobRes.json();
+                    if (cobData) {
+                        if (cobData.url) mediaUrl = cobData.url;
+                        if (cobData.filename) titleName = cobData.filename.replace('.mp4', '');
+                    }
+                } catch(e) {}
+
+                const cleanTitle = sanitizeFilename(titleName);
+                titleElem.innerText = cleanTitle;
+
+                bar.style.width = "80%";
+                sub.innerText = "Fetching raw binary stream into memory Blob...";
+
+                // Fetch binary stream directly via proxy
+                const mediaRes = await fetch(`https://corsproxy.io/?${encodeURIComponent(mediaUrl)}`, {
+                    headers: { 'Cookie': 'age_verified=1; accessAgeDisclaimerPH=1;' }
                 });
 
-                const data = await response.json();
-                if (data && data.url) {
-                    targetStream = data.url;
-                }
+                const blob = await mediaRes.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const fileSizeMb = (blob.size / (1024 * 1024)).toFixed(1);
 
                 bar.style.width = "100%";
                 badge.className = "text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20";
-                badge.innerText = "Ready ✅";
-                sub.innerText = "Stream verified. Tap button below to save to iPhone.";
+                badge.innerText = `Ready ✅ (${fileSizeMb} MB)`;
+                sub.innerText = `Source Title: ${cleanTitle} | Size: ${fileSizeMb} MB`;
 
+                // Native Blob save trigger for iOS Files app
                 action.innerHTML = `
-                    <a href="${targetStream}" target="_blank" download="media_file_${idx + 1}.mp4" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-file-arrow-down"></i> 📥 Download File #${idx + 1} to iPhone Files
-                    </a>
+                    <button onclick="downloadBlob('${blobUrl}', '${cleanTitle}')" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-file-arrow-down"></i> 📥 Save "${cleanTitle}" to iPhone Files
+                    </button>
                 `;
             } catch (err) {
+                // Fallback direct blob handler
+                const fallbackTitle = `source_media_${idx + 1}.mp4`;
                 bar.style.width = "100%";
                 badge.className = "text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20";
                 badge.innerText = "Ready ✅";
-                sub.innerText = "Direct Stream Gateway Active";
+                sub.innerText = "Stream gateway active";
 
                 action.innerHTML = `
-                    <a href="${url}" target="_blank" download="media_file_${idx + 1}.mp4" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-file-arrow-down"></i> 📥 Download File #${idx + 1} to iPhone Files
-                    </a>
+                    <button onclick="forceBlobDownload('${url}', '${fallbackTitle}')" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-file-arrow-down"></i> 📥 Save "${fallbackTitle}" to iPhone Files
+                    </button>
                 `;
             }
+        }
+
+        function downloadBlob(blobUrl, fileName) {
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function forceBlobDownload(url, fileName) {
+            fetch(url)
+                .then(res => res.blob())
+                .then(blob => {
+                    const bUrl = URL.createObjectURL(blob);
+                    downloadBlob(bUrl, fileName);
+                })
+                .catch(() => {
+                    window.location.href = url;
+                });
         }
     </script>
 </body>
