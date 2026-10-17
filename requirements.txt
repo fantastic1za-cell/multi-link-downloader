@@ -1,4 +1,6 @@
-streamlit>=1.30.0
-yt-dlp>=2024.3.10
-instaloader>=4.10.0
-requests>=2.31.0
+streamlit
+yt-dlp
+instaloader
+requests
+beautifulsoup4
+urllib3
