@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import re
 import os
-import json
 
 # Page configuration
 st.set_page_config(
@@ -22,78 +21,63 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Helper: Sanitize File Name
+# Clean and preserve source file title
 def clean_filename(name: str) -> str:
     clean = re.sub(r'[^a-zA-Z0-9_\-\s]', '', name).strip().replace(' ', '_')
-    return f"{clean}.mp4" if clean else "media_video.mp4"
+    return f"{clean}.mp4" if clean else "downloaded_media.mp4"
 
-# Master Failsafe Stream Harvester
-def resolve_and_fetch_media(url: str, status_box, progress_bar):
+# Master File Downloader & Proxy Relay
+def resolve_and_fetch_binary(url: str, status_box, progress_bar):
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cookie': 'age_verified=1; accessAgeDisclaimerPH=1; hasVisited=1; platform=pc;',
-        'Referer': 'https://www.google.com/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Cookie': 'age_verified=1; accessAgeDisclaimerPH=1; hasVisited=1; platform=pc;'
     }
 
-    status_box.markdown("🔍 **Step 1/3:** Bypassing age gates & resolving stream...")
-    progress_bar.progress(20)
+    status_box.markdown("🔍 **Step 1/3:** Bypassing Cloud IP Restrictions...")
+    progress_bar.progress(25)
 
     stream_url = None
     title_name = f"video_{abs(hash(url)) % 1000000}"
 
-    # Tier 1: Direct HTML & Flashvars Stream Extraction
+    # Tier 1: Query API Relay Engine for Uncompressed Video Direct Stream
     try:
-        res = requests.get(url, headers=headers, timeout=12)
-        if res.status_code == 200:
-            # Extract video title
-            title_match = re.search(r'<title>(.*?)</title>', res.text, re.IGNORECASE)
-            if title_match:
-                title_name = title_match.group(1).replace('- Pornhub.com', '').strip()
-
-            # Search for MP4 stream URLs inside flashvars / script tags
-            mp4_matches = re.findall(r'https?://[^\s\'"]+\.mp4[^\s\'"]*', res.text)
-            if mp4_matches:
-                # Prioritize highest resolution stream
-                valid_mp4s = [m.replace('\\/', '/') for m in mp4_matches if 'phncdn.com' in m or 'video' in m]
-                if valid_mp4s:
-                    stream_url = valid_mp4s[0]
-            
-            # Fallback to M3U8 Master Playlist
-            if not stream_url:
-                m3u8_matches = re.findall(r'https?://[^\s\'"]+\.m3u8[^\s\'"]*', res.text)
-                if m3u8_matches:
-                    stream_url = m3u8_matches[0].replace('\\/', '/')
+        cobalt_payload = {"url": url, "videoQuality": "max"}
+        cobalt_headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        api_res = requests.post("https://api.cobalt.tools/api/json", json=cobalt_payload, headers=cobalt_headers, timeout=10)
+        if api_res.status_code == 200:
+            data = api_res.json()
+            if data.get("url"):
+                stream_url = data.get("url")
+            if data.get("filename"):
+                title_name = data.get("filename").replace('.mp4', '')
     except Exception:
         pass
 
-    # Tier 2: Public API Relay Fallback (Cobalt / AllOrigins)
+    # Tier 2: Public Proxy Fallback
     if not stream_url:
-        status_box.markdown("🌐 **Step 2/3:** Querying API Relay Network...")
+        status_box.markdown("🌐 **Step 2/3:** Harvesting Binary Stream through Proxy Relay...")
         progress_bar.progress(50)
         try:
-            cobalt_payload = {"url": url, "videoQuality": "max"}
-            cobalt_headers = {"Accept": "application/json", "Content-Type": "application/json"}
-            api_res = requests.post("https://api.cobalt.tools/api/json", json=cobalt_payload, headers=cobalt_headers, timeout=8)
-            if api_res.status_code == 200:
-                data = api_res.json()
-                if data.get("url"):
-                    stream_url = data.get("url")
-                if data.get("filename"):
-                    title_name = data.get("filename").replace('.mp4', '')
+            proxy_url = f"https://corsproxy.io/?{requests.utils.quote(url)}"
+            res = requests.get(proxy_url, headers=headers, timeout=12)
+            if res.status_code == 200:
+                mp4_matches = re.findall(r'https?://[^\s\'"]+\.mp4[^\s\'"]*', res.text)
+                if mp4_matches:
+                    stream_url = mp4_matches[0].replace('\\/', '/')
         except Exception:
             pass
 
     if not stream_url:
         stream_url = url
 
-    # Tier 3: Fetch Raw Video Binary Bytes
-    status_box.markdown("📥 **Step 3/3:** Fetching binary stream into session memory...")
+    # Tier 3: Fetch Direct Binary Bytes to Session Storage
+    status_box.markdown("📥 **Step 3/3:** Downloading Binary File to Buffer...")
     progress_bar.progress(75)
 
     try:
-        with requests.get(stream_url, headers=headers, stream=True, timeout=30) as video_res:
+        download_target = stream_url if stream_url.startswith("http") else f"https://corsproxy.io/?{requests.utils.quote(stream_url)}"
+        with requests.get(download_target, headers=headers, stream=True, timeout=35) as video_res:
             if video_res.status_code == 200:
                 content_length = int(video_res.headers.get('content-length', 0))
                 downloaded = 0
@@ -107,7 +91,7 @@ def resolve_and_fetch_media(url: str, status_box, progress_bar):
                             p = int((downloaded / content_length) * 100)
                             progress_bar.progress(min(p, 99))
 
-                # Verify binary buffer is valid (> 500 KB)
+                # Verify file size > 500 KB to avoid serving truncated error pages
                 if len(binary_buffer) > 500 * 1024:
                     progress_bar.progress(100)
                     return bytes(binary_buffer), clean_filename(title_name)
@@ -121,7 +105,7 @@ def resolve_and_fetch_media(url: str, status_box, progress_bar):
 st.markdown("""
 <div class="header-card">
     <h2 style="margin:0; color:#ffffff; font-size: 1.4rem;">☁️ Batch Link Downloader</h2>
-    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Automated Stream Hub</p>
+    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone Direct Binary File Download Engine</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -137,7 +121,7 @@ urls_input = st.text_area(
     height=140
 )
 
-st.info("📂 Storage Target: `On My iPhone / Downloads`")
+st.info("📂 Target Destination: `On My iPhone / Downloads`")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -169,12 +153,12 @@ st.caption(f"{len(st.session_state.queue)} item(s) in queue")
 if st.session_state.queue:
     if st.button("🚀 Start Batch Download Process"):
         for idx, item in enumerate(st.session_state.queue):
-            item['status'] = "Processing Stream..."
+            item['status'] = "Downloading Binary File..."
             
             status_box = st.empty()
             progress_bar = st.progress(0)
             
-            binary_bytes, fname = resolve_and_fetch_media(
+            binary_bytes, fname = resolve_and_fetch_binary(
                 url=item['url'],
                 status_box=status_box,
                 progress_bar=progress_bar
@@ -186,14 +170,14 @@ if st.session_state.queue:
                 item['binary_data'] = binary_bytes
                 item['file_name'] = fname
                 item['progress'] = 100
-                status_box.success(f"Item #{idx+1} verified! Title: {fname} | Size: {file_size_mb:.1f} MB")
+                status_box.success(f"Item #{idx+1} complete! File Size: {file_size_mb:.1f} MB")
             else:
-                item['status'] = "Extraction Error ❌ (Stream Restricted)"
-                status_box.error(f"Item #{idx+1} could not be extracted.")
+                item['status'] = "Extraction Error ❌"
+                status_box.error(f"Item #{idx+1} could not be downloaded.")
         
         st.rerun()
 
-    # Render Native Streamlit Save Buttons for iOS Safari
+    # Render Native Streamlit Save Buttons for Direct iOS File Downloads
     for idx, q_item in enumerate(st.session_state.queue):
         with st.container():
             st.markdown(f"**Item #{idx+1}:** `{q_item['url']}`")
@@ -203,7 +187,7 @@ if st.session_state.queue:
             if q_item['binary_data'] is not None:
                 size_mb = len(q_item['binary_data']) / (1024 * 1024)
                 st.download_button(
-                    label=f"📥 Save \"{q_item['file_name']}\" ({size_mb:.1f} MB) to iPhone Files",
+                    label=f"📥 Download File \"{q_item['file_name']}\" ({size_mb:.1f} MB) to iPhone",
                     data=q_item['binary_data'],
                     file_name=q_item['file_name'],
                     mime="video/mp4",
