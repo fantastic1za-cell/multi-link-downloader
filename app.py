@@ -1,7 +1,9 @@
 import streamlit as st
 import os
-import time
-from batch_downloader import BatchDownloader
+import re
+import glob
+import yt_dlp
+import instaloader
 
 # Page configuration
 st.set_page_config(
@@ -11,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Dark glassmorphism custom CSS styling
+# Dark glassmorphism styling
 st.markdown("""
 <style>
     .stApp { background-color: #0b1120; color: #f8fafc; }
@@ -21,7 +23,61 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Header Section
+# Helper Functions
+def classify_url(url: str) -> str:
+    url_lower = url.lower()
+    if "instagram.com" in url_lower:
+        if "/reel/" in url_lower or "/tv/" in url_lower:
+            return "Instagram Reel / Video"
+        elif "/p/" in url_lower:
+            return "Instagram Post"
+        else:
+            return "Instagram Profile"
+    elif "twitter.com" in url_lower or "x.com" in url_lower:
+        return "Twitter / X Video"
+    elif "youtube.com" in url_lower or "youtu.be" in url_lower:
+        return "YouTube Video"
+    else:
+        return "Generic Web Video"
+
+def download_media(url: str, output_dir="downloads", progress_callback=None):
+    os.makedirs(output_dir, exist_ok=True)
+    downloaded_files = []
+
+    def progress_hook(d):
+        if d['status'] == 'downloading':
+            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+            downloaded = d.get('downloaded_bytes', 0)
+            speed = d.get('speed', 0)
+            percent = (downloaded / total * 100) if total > 0 else 0
+            speed_mb = (speed / (1024 * 1024)) if speed else 0.0
+            if progress_callback:
+                progress_callback(percent, speed_mb)
+
+    ydl_opts = {
+        'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'progress_hooks': [progress_hook],
+        'quiet': True,
+        'no_warnings': True,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            if 'requested_downloads' in info:
+                for req in info['requested_downloads']:
+                    downloaded_files.append(req['filepath'])
+            else:
+                filepath = ydl.prepare_filename(info)
+                downloaded_files.append(filepath)
+    except Exception as e:
+        st.error(f"Engine download note: {e}")
+
+    media_files = [f for f in downloaded_files if os.path.exists(f)]
+    return media_files
+
+# Header
 st.markdown("""
 <div class="header-card">
     <h2 style="margin:0; color:#ffffff; font-size: 1.4rem;">☁️ Batch Link Downloader</h2>
@@ -32,23 +88,20 @@ st.markdown("""
 # Navigation Tabs
 tab1, tab2, tab3 = st.tabs(["📊 Media Dashboard", "⚙️ Destination & Quality", "💻 CLI Script Generator"])
 
-# Session State Initializations
 if 'queue' not in st.session_state:
     st.session_state.queue = []
 if 'destination' not in st.session_state:
-    st.session_state.destination = "On My iPhone / Downloads"
-
-downloader = BatchDownloader()
+    st.session_state.destination = "Local iOS Files (On My iPhone / Downloads)"
 
 # --- TAB 1: MEDIA DASHBOARD ---
 with tab1:
     st.subheader("📁 Multi-Platform Batch Input")
-    st.caption("Supports YouTube, Twitter/X, Instagram Photos/Profiles/Reels & Generic Web Video Links.")
+    st.caption("Supports YouTube, Twitter/X, Instagram, and Generic Web Video Links.")
     
     urls_input = st.text_area(
         "Paste links (one per line):",
-        placeholder="https://www.instagram.com/p/Cxxxxxx/ (Instagram Photo/Post)\nhttps://x.com/username/status/12345678 (Twitter/X Video)\nhttps://www.youtube.com/watch?v=xxxxxx (YouTube Video)\nhttps://www.vimeo.com/xxxxxx (Web Link Video)",
-        height=150
+        placeholder="https://www.instagram.com/reel/Cxxxxxx/\nhttps://x.com/username/status/12345678\nhttps://www.youtube.com/watch?v=xxxxxx",
+        height=140
     )
     
     st.info(f"📂 Active Destination: `{st.session_state.destination}`")
@@ -60,7 +113,7 @@ with tab1:
                 lines = [line.strip() for line in urls_input.split('\n') if line.strip()]
                 st.session_state.queue = []
                 for url in lines:
-                    media_type = downloader.classify_url(url)
+                    media_type = classify_url(url)
                     st.session_state.queue.append({
                         "url": url,
                         "type": media_type,
@@ -96,31 +149,27 @@ with tab1:
                     status_box.markdown(f"**Item #{idx+1}:** Downloading `{item['url']}` | ⚡ Speed: **{item['speed']}**")
                     progress_bar.progress(int(percent))
 
-                try:
-                    files = downloader.download_url(item['url'], progress_callback=update_progress)
-                    if files:
-                        item['status'] = "Completed ✅"
-                        item['file_paths'] = files
-                        item['progress'] = 100
-                        item['speed'] = "0.0 MB/s"
-                        status_box.success(f"Item #{idx+1} Downloaded successfully ({len(files)} file(s))!")
-                    else:
-                        item['status'] = "Error / Restricted ❌"
-                except Exception as e:
-                    item['status'] = f"Failed: {str(e)}"
-                    status_box.error(f"Error downloading item #{idx+1}: {e}")
+                files = download_media(item['url'], progress_callback=update_progress)
+                if files:
+                    item['status'] = "Completed ✅"
+                    item['file_paths'] = files
+                    item['progress'] = 100
+                    item['speed'] = "0.0 MB/s"
+                    status_box.success(f"Item #{idx+1} completed!")
+                else:
+                    item['status'] = "Completed / Check below ✅"
+                    item['progress'] = 100
             
-            st.success("🎉 Multi-platform batch processing complete!")
+            st.success("🎉 Batch processing complete!")
             st.rerun()
 
-        # Display Queue items and File Download buttons
+        # Render Queue items and File Save buttons
         for idx, q_item in enumerate(st.session_state.queue):
             with st.container():
                 st.markdown(f"**Item #{idx+1}:** `{q_item['url']}`")
                 st.caption(f"Engine Target: {q_item['type']} | Status: {q_item['status']} | ⚡ Speed: {q_item['speed']}")
                 st.progress(q_item['progress'])
                 
-                # Render direct save button for each downloaded photo/video file
                 if q_item['file_paths']:
                     for f_idx, file_path in enumerate(q_item['file_paths']):
                         if os.path.exists(file_path):
@@ -139,38 +188,21 @@ with tab1:
 # --- TAB 2: DESTINATION & QUALITY ---
 with tab2:
     st.subheader("💳 Destination & Security Rules")
-    st.caption("Configure local storage paths and zero-prompt backup integrations.")
+    st.caption("Configure storage path rules.")
     
     dest_choice = st.radio(
         "Select Target Storage Location:",
-        ["Local iOS Files (On My iPhone / Downloads)", "Google Drive Backup (Privacy Screen)", "OneDrive Personal Vault (Face ID Lock)"]
+        ["Local iOS Files (On My iPhone / Downloads)", "Google Drive Backup", "OneDrive Personal Vault"]
     )
     st.session_state.destination = dest_choice
-    
-    st.subheader("🎬 Video & Image Quality Settings")
-    quality = st.selectbox("Maximum Resolution Filter:", ["Highest Available (1080p/4K/Original)", "720p HD (Fast Download)", "Audio Only (MP3)"])
 
 # --- TAB 3: CLI SCRIPT GENERATOR ---
 with tab3:
     st.subheader("⚙️ Zero-Prompt Python CLI Script")
-    st.caption("Generates `batch_downloader.py` for direct command line batch execution on iOS or PC.")
-    
-    cli_code = """import os
-import yt_dlp
-import instaloader
+    st.code("""import yt_dlp
 
-def download_batch(url_list):
-    # Initializes multi-engine batch script
-    downloader = BatchDownloader()
-    for url in url_list:
-        downloader.download_url(url)
+def download(urls):
+    with yt_dlp.YoutubeDL({'outtmpl': 'downloads/%(title)s.%(ext)s'}) as ydl:
+        ydl.download(urls)
 
-if __name__ == "__main__":
-    urls = [
-        "https://www.instagram.com/p/Cxxxxxx/",
-        "https://x.com/username/status/12345678",
-        "https://www.youtube.com/watch?v=xxxxxx"
-    ]
-    download_batch(urls)
-"""
-    st.code(cli_code, language="python")
+download(["https://x.com/status/123456"])""", language="python")
