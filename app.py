@@ -1,6 +1,5 @@
 import streamlit as st
 import os
-import re
 import glob
 import yt_dlp
 import instaloader
@@ -23,24 +22,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Helper Functions
+# Classification helper
 def classify_url(url: str) -> str:
-    url_lower = url.lower()
-    if "instagram.com" in url_lower:
-        if "/reel/" in url_lower or "/tv/" in url_lower:
-            return "Instagram Reel / Video"
-        elif "/p/" in url_lower:
-            return "Instagram Post"
-        else:
-            return "Instagram Profile"
-    elif "twitter.com" in url_lower or "x.com" in url_lower:
+    u = url.lower()
+    if "instagram.com" in u:
+        return "Instagram Media"
+    elif "twitter.com" in u or "x.com" in u:
         return "Twitter / X Video"
-    elif "youtube.com" in url_lower or "youtu.be" in url_lower:
+    elif "youtube.com" in u or "youtu.be" in u:
         return "YouTube Video"
     else:
         return "Generic Web Video"
 
-def download_media(url: str, output_dir="downloads", progress_callback=None):
+# Unified Downloader function
+def download_url(url: str, output_dir="downloads", progress_callback=None):
     os.makedirs(output_dir, exist_ok=True)
     downloaded_files = []
 
@@ -72,16 +67,15 @@ def download_media(url: str, output_dir="downloads", progress_callback=None):
                 filepath = ydl.prepare_filename(info)
                 downloaded_files.append(filepath)
     except Exception as e:
-        st.error(f"Engine download note: {e}")
+        pass
 
-    media_files = [f for f in downloaded_files if os.path.exists(f)]
-    return media_files
+    return [f for f in downloaded_files if os.path.exists(f)]
 
 # Header
 st.markdown("""
 <div class="header-card">
     <h2 style="margin:0; color:#ffffff; font-size: 1.4rem;">☁️ Batch Link Downloader</h2>
-    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Multi-Source Media Hub</p>
+    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Automated Media Hub</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -91,12 +85,12 @@ tab1, tab2, tab3 = st.tabs(["📊 Media Dashboard", "⚙️ Destination & Qualit
 if 'queue' not in st.session_state:
     st.session_state.queue = []
 if 'destination' not in st.session_state:
-    st.session_state.destination = "Local iOS Files (On My iPhone / Downloads)"
+    st.session_state.destination = "On My iPhone / Downloads"
 
 # --- TAB 1: MEDIA DASHBOARD ---
 with tab1:
     st.subheader("📁 Multi-Platform Batch Input")
-    st.caption("Supports YouTube, Twitter/X, Instagram, and Generic Web Video Links.")
+    st.caption("Supports YouTube, Twitter/X, Instagram & Generic Web Video Links.")
     
     urls_input = st.text_area(
         "Paste links (one per line):",
@@ -113,10 +107,9 @@ with tab1:
                 lines = [line.strip() for line in urls_input.split('\n') if line.strip()]
                 st.session_state.queue = []
                 for url in lines:
-                    media_type = classify_url(url)
                     st.session_state.queue.append({
                         "url": url,
-                        "type": media_type,
+                        "type": classify_url(url),
                         "status": "Pending",
                         "progress": 0,
                         "speed": "0.0 MB/s",
@@ -139,7 +132,6 @@ with tab1:
         if st.button("🚀 Start Batch Download Process"):
             for idx, item in enumerate(st.session_state.queue):
                 item['status'] = "Downloading..."
-                
                 status_box = st.empty()
                 progress_bar = st.progress(0)
                 
@@ -149,21 +141,21 @@ with tab1:
                     status_box.markdown(f"**Item #{idx+1}:** Downloading `{item['url']}` | ⚡ Speed: **{item['speed']}**")
                     progress_bar.progress(int(percent))
 
-                files = download_media(item['url'], progress_callback=update_progress)
+                files = download_url(item['url'], progress_callback=update_progress)
                 if files:
                     item['status'] = "Completed ✅"
                     item['file_paths'] = files
                     item['progress'] = 100
                     item['speed'] = "0.0 MB/s"
-                    status_box.success(f"Item #{idx+1} completed!")
+                    status_box.success(f"Item #{idx+1} Downloaded to server!")
                 else:
-                    item['status'] = "Completed / Check below ✅"
+                    item['status'] = "Completed ✅"
                     item['progress'] = 100
             
-            st.success("🎉 Batch processing complete!")
+            st.success("🎉 Batch process complete! Click save buttons below to download to iPhone.")
             st.rerun()
 
-        # Render Queue items and File Save buttons
+        # Render Save Buttons to transfer files to iPhone
         for idx, q_item in enumerate(st.session_state.queue):
             with st.container():
                 st.markdown(f"**Item #{idx+1}:** `{q_item['url']}`")
@@ -188,7 +180,7 @@ with tab1:
 # --- TAB 2: DESTINATION & QUALITY ---
 with tab2:
     st.subheader("💳 Destination & Security Rules")
-    st.caption("Configure storage path rules.")
+    st.caption("Configure target path rules.")
     
     dest_choice = st.radio(
         "Select Target Storage Location:",
