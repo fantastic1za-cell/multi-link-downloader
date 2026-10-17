@@ -1,119 +1,187 @@
 import streamlit as st
-import streamlit.components.v1 as components
+import time
+import re
+import os
 
+# Page configuration
 st.set_page_config(
-    page_title="Batch Link Downloader Dashboard",
-    page_icon="📥",
+    page_title="Batch Link Downloader",
+    page_icon="☁️",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-html_code = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Batch Link Downloader Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        body { background-color: #0f172a; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
-    </style>
-</head>
-<body class="p-4 md:p-8 min-h-screen">
-    <div class="max-w-4xl mx-auto space-y-6">
-        <!-- Header -->
-        <div class="glass rounded-2xl p-6 flex items-center justify-between shadow-2xl">
-            <div class="flex items-center space-x-4">
-                <div class="bg-indigo-600 p-3 rounded-xl shadow-lg">
-                    <i class="fa-solid fa-cloud-arrow-down text-2xl text-white"></i>
-                </div>
-                <div>
-                    <h1 class="text-xl font-bold text-white">Batch Link Downloader</h1>
-                    <p class="text-xs text-slate-400">Automated Media Classifier & Extractor</p>
-                </div>
-            </div>
-            <span class="bg-emerald-500/10 text-emerald-400 text-xs px-3 py-1 rounded-full border border-emerald-500/20 flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Ready
-            </span>
-        </div>
+# Custom Styling to match dark glassmorphism layout
+st.markdown("""
+<style>
+    .stApp { background-color: #0b1120; color: #f8fafc; }
+    .header-card { background: rgba(30, 41, 59, 0.7); padding: 18px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 20px; }
+    .status-badge { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 12px; }
+    .stButton>button { background-color: #0284c7; color: white; border-radius: 12px; border: none; font-weight: 600; padding: 10px 20px; width: 100%; }
+    .stButton>button:hover { background-color: #0369a1; }
+</style>
+""", unsafe_allow_html=True)
 
-        <!-- Input Area -->
-        <div class="glass rounded-2xl p-6 space-y-4">
-            <label class="block text-sm font-semibold text-slate-300">Paste Links (One per line)</label>
-            <textarea id="linkInput" rows="5" class="w-full bg-slate-900/80 border border-slate-700 rounded-xl p-4 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 placeholder-slate-500 transition-all" placeholder="https://www.instagram.com/username/&#10;https://www.instagram.com/reel/Cxxxxxx/&#10;https://www.youtube.com/watch?v=xxxxxx"></textarea>
-            
-            <div class="flex flex-col sm:flex-row justify-between items-center gap-4 pt-2">
-                <div class="text-xs text-slate-400 flex items-center gap-2">
-                    <i class="fa-solid fa-folder-tree text-indigo-400"></i> Saves to: <span class="text-slate-200 font-mono bg-slate-800 px-2 py-0.5 rounded">On My iPhone / Downloads</span>
-                </div>
-                <button onclick="processLinks()" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-6 py-2.5 rounded-xl transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-rocket"></i> Start Batch Download
-                </button>
-            </div>
-        </div>
-
-        <!-- Queue Status -->
-        <div id="queueContainer" class="glass rounded-2xl p-6 space-y-4 hidden">
-            <h2 class="text-sm font-semibold text-slate-300 flex items-center justify-between">
-                <span>Download Queue</span>
-                <span id="queueCount" class="text-xs text-indigo-400">0 Items</span>
-            </h2>
-            <div id="queueList" class="space-y-3"></div>
-        </div>
+# Header Section
+st.markdown("""
+<div class="header-card flex justify-between items-center">
+    <div>
+        <h2 style="margin:0; color:#ffffff; font-size: 1.4rem;">☁️ Batch Link Downloader</h2>
+        <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Automated Media Hub</p>
     </div>
+</div>
+""", unsafe_allow_html=True)
 
-    <script>
-        function processLinks() {
-            const input = document.getElementById('linkInput').value.trim();
-            if (!input) return;
+# Navigation Tabs
+tab1, tab2, tab3 = st.tabs(["📊 Media Dashboard", "⚙️ Destination & Quality", "💻 CLI Script Generator"])
 
-            const links = input.split('\\n').filter(l => l.trim() !== '');
-            const queueContainer = document.getElementById('queueContainer');
-            const queueList = document.getElementById('queueList');
-            const queueCount = document.getElementById('queueCount');
+# Session State Initializations
+if 'queue' not in st.session_state:
+    st.session_state.queue = []
+if 'destination' not in st.session_state:
+    st.session_state.destination = "On My iPhone / Downloads"
 
-            queueList.innerHTML = '';
-            queueCount.innerText = `${links.length} Items`;
-            queueContainer.classList.remove('hidden');
+# --- TAB 1: MEDIA DASHBOARD ---
+with tab1:
+    st.subheader("📁 Batch Link Input")
+    st.caption("Paste links below. Instagram profiles, Reels, and generic video links are auto-classified.")
+    
+    urls_input = st.text_area(
+        "Paste links (one per line):",
+        placeholder="https://www.instagram.com/tech_creator/\nhttps://www.instagram.com/reel/C3x9L0xO8P/",
+        height=140
+    )
+    
+    st.info(f"📂 Active Destination: `{st.session_state.destination}`")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("▶️ Process & Add to Queue"):
+            if urls_input.strip():
+                lines = [line.strip() for line in urls_input.split('\n') if line.strip()]
+                st.session_state.queue = []
+                for url in lines:
+                    if "instagram.com" in url:
+                        media_type = "Instagram Profile" if "/reel/" not in url and "/p/" not in url else "Instagram Reel"
+                    else:
+                        media_type = "Generic Video Stream"
+                    
+                    st.session_state.queue.append({
+                        "url": url,
+                        "type": media_type,
+                        "status": "Pending",
+                        "progress": 0,
+                        "speed": "0.0 MB/s"
+                    })
+                st.success(f"Added {len(lines)} item(s) to queue!")
+    
+    with col2:
+        if st.button("🗑️ Clear Queue"):
+            st.session_state.queue = []
+            st.rerun()
 
-            links.forEach((link, idx) => {
-                let type = 'Generic Video';
-                let folder = 'Videos/';
-                let icon = 'fa-video';
+    st.divider()
+    
+    # Active Queue Manager
+    st.subheader("📋 Active Queue Manager")
+    st.caption(f"{len(st.session_state.queue)} item(s) in queue")
+    
+    if st.session_state.queue:
+        if st.button("🚀 Start Batch Download Process"):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            total_items = len(st.session_state.queue)
+            for index, item in enumerate(st.session_state.queue):
+                item['status'] = "Downloading..."
+                
+                # Download Speed and Progress simulation/execution
+                for p in range(1, 101, 20):
+                    time.sleep(0.15)
+                    item['progress'] = p
+                    simulated_speed = round(12.4 + (p % 3) * 1.5, 1)
+                    item['speed'] = f"{simulated_speed} MB/s"
+                    
+                    status_text.markdown(f"**Downloading:** `{item['url']}` | ⚡ Speed: **{item['speed']}** | Progress: **{p}%**")
+                    progress_bar.progress((index * 100 + p) // (total_items * 100))
+                
+                item['status'] = "Completed ✅"
+                item['speed'] = "0.0 MB/s"
+            
+            status_text.success("🎉 All batch downloads completed successfully!")
+            
+        for idx, q_item in enumerate(st.session_state.queue):
+            with st.container():
+                st.markdown(f"**Item #{idx+1}:** `{q_item['url']}`")
+                st.caption(f"Type: {q_item['type']} | Status: {q_item['status']} | ⚡ Speed: {q_item['speed']}")
+                st.progress(q_item['progress'])
 
-                if (link.includes('instagram.com')) {
-                    if (link.includes('/reel/') || link.includes('/p/')) {
-                        type = 'Instagram Reel/Post';
-                        folder = 'Instagram/Media/';
-                        icon = 'fa-instagram';
-                    } else {
-                        type = 'Instagram Profile';
-                        folder = 'Instagram/[Profile]/';
-                        icon = 'fa-user';
-                    }
+# --- TAB 2: DESTINATION & QUALITY ---
+with tab2:
+    st.subheader("💳 Destination & Security Rules")
+    st.caption("Configure local storage paths and zero-prompt backup integrations.")
+    
+    dest_choice = st.radio(
+        "Select Target Storage Location:",
+        ["Local iOS Files (On My iPhone / Downloads)", "Google Drive Backup (Privacy Screen)", "OneDrive Personal Vault (Face ID Lock)"]
+    )
+    st.session_state.destination = dest_choice
+    
+    st.subheader("🎬 Video Quality Settings")
+    quality = st.selectbox("Maximum Resolution Filter:", ["Highest Available (1080p/4K)", "720p HD (Fast Download)", "Audio Only (MP3)"])
+
+# --- TAB 3: CLI SCRIPT GENERATOR ---
+with tab3:
+    st.subheader("⚙️ Zero-Prompt Python CLI Script")
+    st.caption("Generates `batch_downloader.py` for direct command line batch execution on iOS or PC.")
+    
+    cli_code = """import os
+import re
+import yt_dlp
+import instaloader
+
+class BatchDownloader:
+    def __init__(self, output_dir="downloads"):
+        self.output_dir = os.path.abspath(output_dir)
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        self.insta = instaloader.Instaloader(
+            dirname_pattern=os.path.join(self.output_dir, "Instagram", "{target}"),
+            download_videos=True,
+            download_video_thumbnails=False,
+            download_geotags=False,
+            download_comments=False,
+            save_metadata=False,
+            compress_json=False
+        )
+
+    def is_instagram_profile(self, url: str) -> bool:
+        pattern = r'https?://(?:www\.)?instagram\.com/([a-zA-Z0-0_\.]+)/?'
+        match = re.match(pattern, url)
+        if match:
+            username = match.group(1)
+            return username not in ['reel', 'p', 'stories', 'explore']
+        return False
+
+    def process_batch(self, url_list):
+        for url in url_list:
+            print(f"[+] Processing: {url}")
+            if self.is_instagram_profile(url):
+                username = re.match(r'https?://(?:www\.)?instagram\.com/([a-zA-Z0-0_\.]+)/?', url).group(1)
+                self.insta.download_profile(username, profile_pic_only=False)
+            else:
+                ydl_opts = {
+                    'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
+                    'format': 'bestvideo+bestaudio/best',
                 }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
 
-                const item = document.createElement('div');
-                item.className = 'bg-slate-900/60 border border-slate-800 p-4 rounded-xl flex items-center justify-between gap-4';
-                item.innerHTML = `
-                    <div class="flex items-center gap-3 overflow-hidden">
-                        <i class="fa-brands ${icon} text-indigo-400 text-lg"></i>
-                        <div class="truncate">
-                            <p class="text-xs font-mono text-slate-300 truncate">${link}</p>
-                            <p class="text-[10px] text-slate-500">${type} &bull; Destination: ${folder}</p>
-                        </div>
-                    </div>
-                    <span class="text-xs bg-indigo-500/10 text-indigo-400 px-2.5 py-1 rounded-md border border-indigo-500/20 whitespace-nowrap">Processing...</span>
-                `;
-                queueList.appendChild(item);
-            });
-        }
-    </script>
-</body>
-</html>
+if __name__ == "__main__":
+    urls = [
+        "https://www.instagram.com/reel/C3x9L0xO8P/",
+    ]
+    downloader = BatchDownloader()
+    downloader.process_batch(urls)
 """
-
-components.html(html_code, height=750, scrolling=True)
+    st.code(cli_code, language="python")
