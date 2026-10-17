@@ -1,10 +1,10 @@
 import streamlit as st
-import os
-import glob
+import requests
 import re
-import yt_dlp
+import os
+import time
 
-# Page setup
+# Page Configuration
 st.set_page_config(
     page_title="Batch Link Downloader",
     page_icon="☁️",
@@ -12,18 +12,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Dark glassmorphism styling
+# Dark Glassmorphism Styling
 st.markdown("""
 <style>
     .stApp { background-color: #0b1120; color: #f8fafc; }
     .header-card { background: rgba(30, 41, 59, 0.7); padding: 18px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 20px; }
     .stButton>button { background-color: #0284c7; color: white; border-radius: 12px; border: none; font-weight: 600; padding: 10px 20px; width: 100%; }
     .stButton>button:hover { background-color: #0369a1; }
-    .download-card { background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(51, 65, 85, 0.8); padding: 16px; border-radius: 14px; margin-bottom: 12px; }
+    .item-card { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.6); padding: 16px; border-radius: 12px; margin-bottom: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Helper: URL Classifier
+# URL Classification Helper
 def classify_url(url: str) -> str:
     u = url.lower()
     if "instagram.com" in u:
@@ -37,63 +37,90 @@ def classify_url(url: str) -> str:
     else:
         return "Generic Web Video"
 
-# Reliable Direct Stream Fetcher
-def process_media_extraction(url: str, output_dir="downloads", status_placeholder=None, progress_bar=None):
-    os.makedirs(output_dir, exist_ok=True)
-    
+# Multi-Tier Failsafe Media Resolver
+def resolve_and_fetch_binary(url: str, status_box, progress_bar):
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        'Accept': '*/*',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Cookie': 'age_verified=1; platform=pc; bs=1',
     }
 
-    def progress_hook(d):
-        if d['status'] == 'downloading':
-            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
-            downloaded = d.get('downloaded_bytes', 0)
-            speed = d.get('speed', 0)
-            percent = (downloaded / total * 100) if total > 0 else 0
-            speed_mb = (speed / (1024 * 1024)) if speed else 0.0
-            
-            if status_placeholder and progress_bar:
-                status_placeholder.markdown(f"⚡ Downloading: **{percent:.1f}%** | Speed: **{speed_mb:.1f} MB/s**")
-                progress_bar.progress(int(percent))
+    status_box.markdown("🔍 **Step 1/3:** Resolving video stream headers...")
+    progress_bar.progress(25)
 
-    ydl_opts = {
-        'outtmpl': os.path.join(output_dir, '%(title)s.%(ext)s'),
-        'format': 'best[ext=mp4]/best',
-        'progress_hooks': [progress_hook],
-        'quiet': True,
-        'no_warnings': True,
-        'nocheckcertificate': True,
-        'ignoreerrors': True,
-        'user_agent': headers['User-Agent'],
-        'http_headers': headers
-    }
+    stream_url = None
 
-    files = []
+    # Tier 1: Direct Cobalt Media API Bridge
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            if info:
-                filepath = ydl.prepare_filename(info)
-                if os.path.exists(filepath):
-                    files.append(filepath)
+        api_payload = {"url": url, "videoQuality": "max"}
+        api_headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        response = requests.post("https://api.cobalt.tools/api/json", json=api_payload, headers=api_headers, timeout=8)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("status") in ["redirect", "stream", "picker"]:
+                stream_url = data.get("url")
     except Exception:
         pass
 
-    if not files:
-        # Fallback directory scan
-        all_files = glob.glob(os.path.join(output_dir, "*.*"))
-        files = [f for f in all_files if os.path.exists(f) and os.path.getsize(f) > 1024]
+    # Tier 2: Public Proxy Gateway Fallback
+    if not stream_url:
+        status_box.markdown("🌐 **Step 2/3:** Bypassing datacenter restrictions via Proxy Gateway...")
+        progress_bar.progress(50)
+        gateways = [
+            f"https://corsproxy.io/?{requests.utils.quote(url)}",
+            f"https://api.allorigins.win/raw?url={requests.utils.quote(url)}"
+        ]
+        for gw in gateways:
+            try:
+                res = requests.get(gw, headers=headers, timeout=10)
+                if res.status_code == 200:
+                    mp4_matches = re.findall(r'https?://[^\s\'"]+\.mp4[^\s\'"]*', res.text)
+                    if mp4_matches:
+                        stream_url = mp4_matches[0].replace('\\/', '/')
+                        break
+            except Exception:
+                continue
 
-    return files
+    # Tier 3: Direct Stream Target
+    if not stream_url:
+        stream_url = url
 
-# Header
+    # Binary Fetching for Native iOS Delivery
+    status_box.markdown("📥 **Step 3/3:** Downloading binary bytes into device session buffer...")
+    progress_bar.progress(75)
+
+    try:
+        # Fetch target stream via proxy to ensure datacenter bypass
+        target = f"https://corsproxy.io/?{requests.utils.quote(stream_url)}" if not stream_url.startswith("https://corsproxy.io") else stream_url
+        res = requests.get(target, headers=headers, stream=True, timeout=25)
+        
+        if res.status_code == 200:
+            content_length = int(res.headers.get('content-length', 0))
+            downloaded = 0
+            binary_data = bytearray()
+            
+            for chunk in res.iter_content(chunk_size=65536):
+                if chunk:
+                    binary_data.extend(chunk)
+                    downloaded += len(chunk)
+                    if content_length > 0:
+                        p = int((downloaded / content_length) * 100)
+                        progress_bar.progress(min(p, 99))
+            
+            if len(binary_data) > 1024:
+                progress_bar.progress(100)
+                return bytes(binary_data)
+    except Exception:
+        pass
+
+    progress_bar.progress(0)
+    return None
+
+# Header Section
 st.markdown("""
 <div class="header-card">
     <h2 style="margin:0; color:#ffffff; font-size: 1.4rem;">☁️ Batch Link Downloader</h2>
-    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Automated Media Hub</p>
+    <p style="margin:0; color:#94a3b8; font-size: 0.8rem;">iPhone 17 Pro Max Direct iOS File Delivery Hub</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -112,11 +139,11 @@ with tab1:
     
     urls_input = st.text_area(
         "Paste links (one per line):",
-        placeholder="https://www.instagram.com/reel/Cxxxxxx/\nhttps://x.com/username/status/12345678\nhttps://www.youtube.com/watch?v=xxxxxx",
+        placeholder="https://www.pornhub.com/view_video.php?viewkey=69f07e4c68014\nhttps://www.instagram.com/reel/Cxxxxxx/\nhttps://x.com/username/status/12345678",
         height=140
     )
     
-    st.info(f"📂 Saves directly into: `{st.session_state.destination}`")
+    st.info(f"📂 Active Storage Target: `{st.session_state.destination}`")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -130,8 +157,7 @@ with tab1:
                         "type": classify_url(url),
                         "status": "Pending",
                         "progress": 0,
-                        "speed": "0.0 MB/s",
-                        "file_paths": []
+                        "binary_data": None
                     })
                 st.success(f"Added {len(lines)} item(s) to queue!")
     
@@ -149,54 +175,49 @@ with tab1:
     if st.session_state.queue:
         if st.button("🚀 Start Batch Download Process"):
             for idx, item in enumerate(st.session_state.queue):
-                item['status'] = "Downloading..."
+                item['status'] = "Processing Failsafe Pipeline..."
                 
                 status_box = st.empty()
                 progress_bar = st.progress(0)
                 
-                files = process_media_extraction(
+                binary_output = resolve_and_fetch_binary(
                     url=item['url'],
-                    status_placeholder=status_box,
+                    status_box=status_box,
                     progress_bar=progress_bar
                 )
                 
-                if files:
+                if binary_output:
                     item['status'] = "Ready for Save ✅"
-                    item['file_paths'] = files
+                    item['binary_data'] = binary_output
                     item['progress'] = 100
-                    status_box.success(f"Item #{idx+1} extracted successfully!")
+                    status_box.success(f"Item #{idx+1} successfully compiled for iOS save!")
                 else:
-                    item['status'] = "Extraction Error ❌"
-                    status_box.error(f"Item #{idx+1} failed to extract.")
+                    item['status'] = "Stream Extraction Failed ❌"
+                    status_box.error(f"Item #{idx+1} stream could not be fetched.")
             
             st.rerun()
 
-        # Render Queue Items and Native Streamlit iPhone Save Buttons
+        # Render Queue items and Native iPhone Download Buttons
         for idx, q_item in enumerate(st.session_state.queue):
             with st.container():
                 st.markdown(f"**Item #{idx+1}:** `{q_item['url']}`")
                 st.caption(f"Engine Target: {q_item['type']} | Status: {q_item['status']}")
                 st.progress(q_item['progress'])
                 
-                # Native Streamlit Binary Exporter (Bypasses iframe crashes)
-                if q_item['file_paths']:
-                    for f_idx, file_path in enumerate(q_item['file_paths']):
-                        if os.path.exists(file_path):
-                            file_name = os.path.basename(file_path)
-                            mime_type = "image/jpeg" if file_name.endswith(('.jpg', '.jpeg', '.png')) else "video/mp4"
-                            
-                            with open(file_path, "rb") as f_bytes:
-                                st.download_button(
-                                    label=f"📥 Download Item #{idx+1} ({file_name}) to iPhone Files",
-                                    data=f_bytes,
-                                    file_name=file_name,
-                                    mime=mime_type,
-                                    key=f"native_dl_{idx}_{f_idx}"
-                                )
+                # Native Binary File Exporter for iOS Safari
+                if q_item['binary_data'] is not None:
+                    file_name = f"media_file_{idx+1}.mp4"
+                    st.download_button(
+                        label=f"📥 Download File #{idx+1} ({file_name}) to iPhone Files",
+                        data=q_item['binary_data'],
+                        file_name=file_name,
+                        mime="video/mp4",
+                        key=f"native_dl_btn_{idx}"
+                    )
 
-# --- TAB 2: DESTINATION & QUALITY ---
+# --- TAB 2: DESTINATION RULES ---
 with tab2:
-    st.subheader("💳 Destination Rules")
+    st.subheader("💳 Storage Path Configuration")
     dest_choice = st.radio(
         "Select Target Storage Location:",
         ["Local iOS Files (On My iPhone / Downloads)", "Google Drive Backup", "OneDrive Personal Vault"]
